@@ -1,0 +1,261 @@
+%A função abaixo recebe uma lista de espécies onde o gênero está separado
+%da espécie por um underline, extrai toda info da página dessa espécie no
+%AntWiki e para cada espécie, armazena a espécie e o texto retirado (caso
+%haja). Essa função do jeito que esta montada serve como base para rodas o
+%arrayfun para criação da célula Antarray
+function sppext = extFen(str)
+sppext = strings(1,2);
+sppext(1,1) = str;
+try
+    (webread(strcat('https://www.antwiki.org/wiki/', str)));
+catch
+    return
+end
+page = webread(strcat('https://www.antwiki.org/wiki/', str));
+extraction = extractBetween(page, 'id="Worker', '</p>');
+if ~isempty(extraction)
+    if length(extraction)>1
+        sppext(1,2) = extraction(2,1);
+    else
+        sppext(1,2) = extraction;
+    end
+end
+disp(sppext(1,1))
+end
+
+% é criado uma célula chamada Antarray com 2981 linhas contendo (ou não a
+% extração), usando como base a função criada acima
+Antarray = arrayfun(@(x) extFen(x), sppList, 'un', 0);
+
+% extrair conteúdo das células de Antarray para um célula em que fique melhor 
+% trabalhar os dados, nesse caso, Antcel
+
+for i = 1:length(Antarray);
+    antstr = Antarray{i,1};
+    Antcel{i,1} = antstr(1);
+    Antcel{i,2} = antstr(2);
+end
+
+% A seguir faço uma inspeção para ter uma idéia da porcentagem de espécies
+% sem nada ou com alguma coleta do site
+
+countfull = 0;
+countempty = 0;
+for i = 1:length(Antcel)
+    a = Antcel{i,2};
+    a = char(a);
+    if length(a) > 1
+        countfull = countfull + 1;
+    else
+        countempty = countempty + 1;
+    end
+end
+empty_pc = (countempty/length(Antcel))*100;
+full_pc = (countfull/length(Antcel))*100;
+disp([num2str(full_pc) '% das espécies possuem algum informação e ' num2str(empty_pc) '% estão vazias.'])
+
+
+%Excluir linhas que não possuem o parágrafo com fenótipos. Aqui há três
+%situações onde tal ocorre e, portanto, devem ser lidadas separadamente.
+%Cada bloco de código, a seguir, lida com cada situação listada abaixo:
+%   - linha vazia sem info
+%   - linhas que são 'h3>' e não 'h4>' - pois são do parágrafo de imagens
+%   da formiga
+%   - linhas com 'h4>' que não possuem as variáveis bem delimitadinhas
+
+empty_index = []
+for i = 1:(length(Antcel(:,1)))
+    a = Antcel{i, 2};
+    if length(char(a)) < 2
+        empty_index = [empty_index i];
+    end
+end
+Antcel(empty_index,:) = [];
+
+
+h3_index = [];
+for i = 1:(length(Antcel(:,1)))
+    a = Antcel{i, 2};
+    if contains(Antcel{i,2}, 'h3>')
+        h3_index = [h3_index i];
+    end
+end
+Antcel(h3_index,:) = [];
+
+
+%Na sequência, se houver célula sem HW ou TL ou HL e assim em diante,
+%excluir. Ainda vou explorar, mais para frente, usar regexp para para dar
+%conta do grande if cheio de &s
+
+nophen_index = [];
+for i = 1:(length(Antcel(:,1)))
+    a = Antcel{i, 2};
+    if ~contains(Antcel{i,2}, 'HL') && ~contains(Antcel{i,2}, 'HW') && ~contains(Antcel{i,2}, 'TL') && ~contains(Antcel{i,2}, 'CI') && ~contains(Antcel{i,2}, 'SL') && ~contains(Antcel{i,2}, 'ML') && ~contains(Antcel{i,2}, 'EL') && ~contains(Antcel{i,2}, 'HL') && ~contains(Antcel{i,2}, 'CL') && ~contains(Antcel{i,2}, 'PW')
+        nophen_index = [nophen_index i];
+    end
+end
+Antcel(nophen_index, :) = [];
+
+%Criei uma nova cellarray - Antcelclean - e transferi o nome das espécies. O próximo passo
+%é conseguir organizar os fenótipos
+
+for i = 1:length(Antcel(:,1))
+    Antcelclean{i, 1} = Antcel{i,1};
+end
+
+%Os Próximos passos foram pensando para extrair o HL para a Monique,
+%portanto ainda devem ser generalizado mais a frente!!!!!!!!!
+
+%No código a seguir eu extraio somente o Fen HL junto com seu valor numérico e os coloco 
+%em Antcelnophenless na terceira coluna. Para tal, eu faço uma condicional com regexp do 
+%que eu não quero pegar, para ai sim colocar a condição que quero
+
+for i = 1:length(Antcelnophenless)
+    FenList = regexp(Antcelnophenless{i,2}, '\s[A-Z][A-Z]\S?\s?\S?\s?[\d\.]*[-|–][\d\.]*', 'match'); % regexp que não quero
+    if isempty(FenList)
+        HL = regexp(Antcelnophenless{i,2}, '\sHL\S?\s?\S?\s?[\d\.]*', 'match'); % regexp que quero
+        Antcelnophenless{i,3} = HL;
+    else
+        Antcelnophenless{i,3} = [];
+    end
+end
+
+%Feita tal extração, procedi para extrair apenas o valor numérico contido na string 
+%presente em Antcelnophenless{i,3}, e colocá-lo na espécie correspondente em 
+%Antcelclean.HL. Junto ja fiz uma contagem de quantos tinham o dado na forma que 
+%busquei e quantos não
+
+count = 0;
+for i = 1:length(Antcelnophenless)
+    if ~isnumeric(Antcelnophenless{i,3}) & length(Antcelnophenless{i,3}) == 1 & ~isempty(regexp(Antcelnophenless{i,3}, '[\d\.]*', 'match'))
+        value = regexp(Antcelnophenless{i,3}, '[\d\.]*', 'match');
+        Antcelclean.HL(i) = str2double(value);
+    else
+        count = count+1;
+    end
+end
+disp(['Há ' num2str(length(Antcelnophenless) - count) ' espécies com HL extraível e ' num2str(count) ' de spp sem tal info.'])
+
+%após isso salvei a tabela limpa somente com HL de AntcelcleanHL. Como parte da etapa, 
+%criei uma tabela sem os valores 0s para a Monique
+
+HLspp_list = [];
+for i = 1:height(AntcelcleanHL)
+    if AntcelcleanHL.HL(i) > 0
+        HLspp_list = [HLspp_list AntcelcleanHL.ESPECIE(i)];
+    end
+end
+for i = 1:length(HLspp_list)
+    AntcelHL_nozero{i,1} = HLspp_list(i);
+    for j = 1:height(AntcelcleanHL)
+        if strcmp(HLspp_list(i), AntcelcleanHL.ESPECIE(j))
+            AntcelHL_nozero{i,2} = AntcelcleanHL.HL(j);
+        end
+    end
+end
+AntHLnozero_table = cell2table(AntcelHL_nozero);
+AntHLnozero_table.Properties.VariableNames{2} = 'HL';
+AntHLnozero_table.Properties.VariableNames{1} = 'ESPECIE';
+
+
+%Aqui estou dando atenção para a extração de HL que possuem ranges apenas.
+%A idéia é incluir os ranges extraídos com HL para uma terceira coluna em
+%Antcel e, após isso, extrair os valores númericos criando três colunas em
+%Antcelclean: uma coluna do mínimo, uma do máximo e uma da média
+
+%% Nesse primeiro código, eu extraio os HLs com ranges para uma terceira
+
+%coluna em Antcel, para poderem ser melhor trabalhados para Antcelclean.
+%Isso ainda será generalizado para outros fenótipos
+
+for i = 1:length(Antcel)
+    FenList = regexp(Antcel{i,2}, '\sHL\S?\s?\S?\s?[\d\.]*\s?[-|–]\s?[\d\.]*', 'match'); % o código precisou de adaptação para englobar padrão onde há espaço entre o separador do range ex: 1.80 - 1.97
+    if ~isempty(FenList)
+        Antcel{i,3} = FenList;
+    else
+        FenList2 = regexp(Antcel{i,2}, '\sHL\s[\d\.]*\S?\s?\S?\s?[\d\.]*[-|–][\d\.]*', 'match'); % esse regexp engloba a situação em que HL 0.80 (0.77-0.88), situação que o regexp acima não pega
+        Antcel{i,3} = FenList2;
+    end
+end
+
+%% Contabilizando a quantidade de espécies com fenótipo em range
+
+count = 0;
+countplus = 0;
+for i = 1:length(Antcel)
+    if length(Antcel{i,3}) == 1
+        count = count+1;
+    elseif length(Antcel{i,3}) > 1
+        countplus = countplus+1;        
+    end
+end
+disp(['Há ' num2str(count) ' espécies com fenótipo em range e ' num2str(length(Antcel) - count - countplus) ' sem valor e ' num2str(countplus) ' espécies com mais de uma notação para mesmo fenótipo.'])
+
+
+
+%% Agora irei extrair os fenótipos e oragnizá-los, numéricamente, na Antcelclean.
+
+%Caso a espécie possua Antcel{i,3} vazia ou maior que 1, ela é removida de
+%Antcel e de Antcelclean
+
+Sppindex = [];
+for i = 1:length(Antcel)
+    if isempty(Antcel{i,3}) || length(Antcel{i,3}) > 1
+        Sppindex = [Sppindex i];
+    end
+end
+Antcel(Sppindex, :) = [];
+Antcelclean(Sppindex, :) = [];
+
+
+
+
+%Os dados serão extraídos da terceira coluna de Antcel e, a partir deles,
+%serão criadas três colunas em Antcelclean: uma com o valor à esquerda do
+%traço (mínimo), outra com o valor à direita (máximo), e outra com a média
+%entre esses dois valores
+
+for i = 1:length(Antcel)
+    fenmin = str2double(regexp(Antcel{i,3}, '[\d\.]*(?=\s?[-|–])', 'match')); %regexp que pega valores antes do traço (mínimos)
+    fenmax = str2double(regexp(Antcel{i,3}, '(?<=[-|–]\s?)[\d\.]*', 'match')); %regexp que pega valores depois do traço (máximos)
+    fenmean = mean([fenmin fenmax]);
+    Antcelclean{i,2} = fenmin;
+    Antcelclean{i,3} = fenmax;
+    Antcelclean{i,4} = fenmean;
+end
+
+
+%% Criação de Antrange_table
+
+%Com os dados devidamente extraídos para Antcelclean, essa celarray é
+%transformada em uma tabela e suas colunas nomeadas
+
+Antrange_table = cell2table(Antcelclean);
+Antrange_table.Properties.VariableNames{1} = 'ESPECIE';
+Antrange_table.Properties.VariableNames{2} = 'HLmin';
+Antrange_table.Properties.VariableNames{3} = 'HLmax';
+Antrange_table.Properties.VariableNames{4} = 'HLmean';
+
+
+
+%Valores zoadoas:
+% 35 - vírgula do mal  HL 0,76-1
+% 367 - tem vírgula  HL 0,52-0.63
+% 459 - além de ter espaço depois do traço, segue esse padrão bizonho HL 1.62, 1.43- 1.62
+
+%no momento como esses valores tão fodendo o rolê, vou retirá-los com uma
+%condicional e depois penso como dar conta disso (ou não)
+
+fuckedindex = [];
+for i = 1:height(Antrange_table)
+    if isnan(Antrange_table.HLmean(i)) || Antrange_table.HLmean(i) > 10
+        fuckedindex = [fuckedindex i];
+    end
+end
+Antrange_table(fuckedindex, :) = [];
+
+
+%Essa Antrange_table está sendo enviada para a Monique (HLs), e todo esse
+%código deve ser trabalhado para generalizar e melhorar sua eficiência
+
+
